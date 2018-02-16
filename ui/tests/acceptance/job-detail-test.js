@@ -79,6 +79,11 @@ test('when switching namespaces, the app redirects to /jobs with the new namespa
 
   visit(`/jobs/${job.id}?namespace=${namespace.name}`);
 
+  // andThen(() => {
+  //   console.table(server.db.jobs.map(({ id, namespace, name }) => ({ id, namespace, name })));
+  //   server.pretender.handledRequests.mapBy('url').forEach(url => console.log(url));
+  // });
+
   andThen(() => {
     selectChoose('[data-test-namespace-switcher]', label);
   });
