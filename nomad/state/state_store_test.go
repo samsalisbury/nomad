@@ -699,6 +699,7 @@ func TestStateStore_UpdateNodeStatus_Node(t *testing.T) {
 }
 
 func TestStateStore_UpdateNodeDrain_Node(t *testing.T) {
+	require := require.New(t)
 	state := testStateStore(t)
 	node := mock.Node()
 
@@ -707,45 +708,32 @@ func TestStateStore_UpdateNodeDrain_Node(t *testing.T) {
 		t.Fatalf("err: %v", err)
 	}
 
+	expectedTime := int64(101)
+	expectedDrain := &structs.DrainStrategy{
+		Deadline: 10 * time.Second,
+	}
+
 	// Create a watchset so we can test that update node drain fires the watch
 	ws := memdb.NewWatchSet()
 	if _, err := state.NodeByID(ws, node.ID); err != nil {
 		t.Fatalf("bad: %v", err)
 	}
 
-	err = state.UpdateNodeDrain(1001, node.ID, true)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-
-	if !watchFired(ws) {
-		t.Fatalf("bad")
-	}
+	require.Nil(state.UpdateNodeDrain(1001, node.ID, expectedDrain, expectedTime))
+	require.True(watchFired(ws))
 
 	ws = memdb.NewWatchSet()
 	out, err := state.NodeByID(ws, node.ID)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-
-	if !out.Drain {
-		t.Fatalf("bad: %#v", out)
-	}
-	if out.ModifyIndex != 1001 {
-		t.Fatalf("bad: %#v", out)
-	}
+	require.Nil(err)
+	require.True(out.Drain)
+	require.NotNil(out.DrainStrategy)
+	require.Equal(out.DrainStrategy, expectedDrain)
+	require.EqualValues(1001, out.ModifyIndex)
 
 	index, err := state.Index("nodes")
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	if index != 1001 {
-		t.Fatalf("bad: %d", index)
-	}
-
-	if watchFired(ws) {
-		t.Fatalf("bad")
-	}
+	require.Nil(err)
+	require.EqualValues(1001, index)
+	require.False(watchFired(ws))
 }
 
 func TestStateStore_Nodes(t *testing.T) {
