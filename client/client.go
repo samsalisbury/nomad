@@ -1020,8 +1020,12 @@ func resourcesAreEqual(first, second *structs.Resources) bool {
 	if first.IOPS != second.IOPS {
 		return false
 	}
-	if len(first.Networks) != len(second.Networks) {
-		return false
+	for _, e := range first.Networks {
+		for _, f := range second.Networks {
+			if e != f {
+				return false
+			}
+		}
 	}
 	return true
 }
@@ -1542,8 +1546,9 @@ func (c *Client) watchNodeUpdates() {
 				c.configLock.Unlock()
 
 				c.retryRegisterNode()
+
+				hasChanged = false
 			}
-			hasChanged = false
 		case <-c.triggerNodeUpdate:
 			hasChanged = true
 		case <-c.shutdownCh:
