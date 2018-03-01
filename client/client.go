@@ -616,8 +616,16 @@ func (c *Client) SetServers(in []string) error {
 // since the server may be starting up in parallel and initial pings may fail.
 func (c *Client) setServersImpl(in []string, force bool) error {
 	var mu sync.Mutex
-	var wg sync.WaitGroup
+	var wg, errWG sync.WaitGroup
 	var merr multierror.Error
+	errCh := make(chan error, 2*len(in))
+	errWG.Add(1)
+	go func() {
+		for err := range errCh {
+			merr.Errors = append(merr.Errors, err)
+		}
+		errWG.Done()
+	}()
 
 	endpoints := make([]*servers.Server, 0, len(in))
 	wg.Add(len(in))
@@ -628,13 +636,13 @@ func (c *Client) setServersImpl(in []string, force bool) error {
 			addr, err := resolveServer(srv)
 			if err != nil {
 				c.logger.Printf("[DEBUG] client: ignoring server %s due to resolution error: %v", srv, err)
-				merr.Errors = append(merr.Errors, err)
+				errCh <- err
 				return
 			}
 
 			// Try to ping to check if it is a real server
 			if err := c.Ping(addr); err != nil {
-				merr.Errors = append(merr.Errors, fmt.Errorf("Server at address %s failed ping: %v", addr, err))
+				errCh <- fmt.Errorf("Server at address %s failed ping: %v", addr, err)
 
 				// If we are forcing the setting of the servers, inject it to
 				// the serverlist even if we can't ping immediately.
@@ -650,6 +658,8 @@ func (c *Client) setServersImpl(in []string, force bool) error {
 	}
 
 	wg.Wait()
+	close(errCh)
+	errWG.Wait()
 
 	// Only return errors if no servers are valid
 	if len(endpoints) == 0 {
