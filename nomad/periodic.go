@@ -465,7 +465,10 @@ func (p *PeriodicDispatch) LaunchTime(jobID string) (time.Time, error) {
 
 // flush clears the state of the PeriodicDispatcher
 func (p *PeriodicDispatch) flush() {
-	p.updateCh = make(chan struct{}, 1)
+	select {
+	default:
+	case <-p.updateCh:
+	}
 	p.tracked = make(map[structs.NamespacedID]*structs.Job)
 	p.heap = NewPeriodicHeap()
 	p.stopFn = nil
