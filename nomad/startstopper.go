@@ -3,32 +3,35 @@ package nomad
 import "sync"
 
 type StartStopper struct {
-	stoppedCh *chan struct{}
+	stoppedCh chan struct{}
 	sync.RWMutex
 }
 
 func NewStartStopper() *StartStopper {
-	ch := make(chan struct{})
-	return &StartStopper{stoppedCh: &ch}
+	return &StartStopper{stoppedCh: make(chan struct{})}
 }
 
 func (s *StartStopper) Stop() {
 	s.Lock()
 	defer s.Unlock()
-	close(*s.stoppedCh)
+	close(s.stoppedCh)
 }
 
 func (s *StartStopper) Start() {
 	s.Lock()
 	defer s.Unlock()
-	ch := make(chan struct{})
-	s.stoppedCh = &ch
+	select {
+	default:
+		// Already started.
+	case <-s.stoppedCh:
+		s.stoppedCh = make(chan struct{})
+	}
 }
 
 func (s *StartStopper) Stopped() <-chan struct{} {
 	s.RLock()
 	defer s.RUnlock()
-	return *s.stoppedCh
+	return s.stoppedCh
 }
 
 func (s *StartStopper) IsStopped() bool {
@@ -37,7 +40,7 @@ func (s *StartStopper) IsStopped() bool {
 	select {
 	default:
 		return false
-	case <-*s.stoppedCh:
+	case <-s.stoppedCh:
 		return true
 	}
 }
