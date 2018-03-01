@@ -69,8 +69,7 @@ type BlockedEvals struct {
 	// allows us to prune based on time.
 	timetable *TimeTable
 
-	// stopCh is used to stop any created goroutines.
-	stopCh chan struct{}
+	ss *StartStopper
 }
 
 // capacityUpdate stores unblock data.
@@ -111,8 +110,8 @@ func NewBlockedEvals(evalBroker *EvalBroker) *BlockedEvals {
 		unblockIndexes:   make(map[string]uint64),
 		capacityChangeCh: make(chan *capacityUpdate, unblockBuffer),
 		duplicateCh:      make(chan struct{}, 1),
-		stopCh:           make(chan struct{}),
 		stats:            new(BlockedStats),
+		ss:               NewStartStopper(),
 	}
 }
 
@@ -134,8 +133,6 @@ func (b *BlockedEvals) SetEnabled(enabled bool) {
 	} else if enabled {
 		go b.watchCapacity()
 		go b.prune()
-	} else {
-		close(b.stopCh)
 	}
 	b.enabled = enabled
 	b.l.Unlock()
@@ -411,9 +408,12 @@ func (b *BlockedEvals) UnblockClassAndQuota(class, quota string, index uint64) {
 // watchCapacity is a long lived function that watches for capacity changes in
 // nodes and unblocks the correct set of evals.
 func (b *BlockedEvals) watchCapacity() {
+	if b.ss.IsStopped() {
+		return
+	}
 	for {
 		select {
-		case <-b.stopCh:
+		case <-b.ss.Stopped():
 			return
 		case update := <-b.capacityChangeCh:
 			b.unblock(update.computedClass, update.quotaChange, update.index)
@@ -531,6 +531,9 @@ func (b *BlockedEvals) UnblockFailed() {
 // GetDuplicates returns all the duplicate evaluations and blocks until the
 // passed timeout.
 func (b *BlockedEvals) GetDuplicates(timeout time.Duration) []*structs.Evaluation {
+	if b.ss.IsStopped() {
+		return nil
+	}
 	var timeoutTimer *time.Timer
 	var timeoutCh <-chan time.Time
 SCAN:
@@ -551,7 +554,7 @@ SCAN:
 	}
 
 	select {
-	case <-b.stopCh:
+	case <-b.ss.Stopped():
 		return nil
 	case <-timeoutCh:
 		return nil
@@ -562,6 +565,10 @@ SCAN:
 
 // Flush is used to clear the state of blocked evaluations.
 func (b *BlockedEvals) Flush() {
+
+	b.ss.Stop()
+	defer b.ss.Start()
+
 	b.l.Lock()
 	defer b.l.Unlock()
 
@@ -575,9 +582,8 @@ func (b *BlockedEvals) Flush() {
 	b.unblockIndexes = make(map[string]uint64)
 	b.timetable = nil
 	b.duplicates = nil
-	b.capacityChangeCh = make(chan *capacityUpdate, unblockBuffer)
-	b.stopCh = make(chan struct{})
-	b.duplicateCh = make(chan struct{}, 1)
+	//b.capacityChangeCh = make(chan *capacityUpdate, unblockBuffer)
+	//b.duplicateCh = make(chan struct{}, 1)
 }
 
 // Stats is used to query the state of the blocked eval tracker.
@@ -612,12 +618,15 @@ func (b *BlockedEvals) EmitStats(period time.Duration, stopCh chan struct{}) {
 
 // prune is a long lived function that prunes unnecessary objects on a timer.
 func (b *BlockedEvals) prune() {
+	if b.ss.IsStopped() {
+		return
+	}
 	ticker := time.NewTicker(pruneInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-b.stopCh:
+		case <-b.ss.Stopped():
 			return
 		case <-ticker.C:
 			b.pruneUnblockIndexes()
