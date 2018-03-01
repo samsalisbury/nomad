@@ -24,6 +24,8 @@ type FingerprintManager struct {
 	// associated node
 	updateNode func(*cstructs.FingerprintResponse) *structs.Node
 	logger     *log.Logger
+
+	l sync.RWMutex
 }
 
 // NewFingerprintManager is a constructor that creates and returns an instance
@@ -98,7 +100,9 @@ func (fm *FingerprintManager) setupDrivers(drivers []string) error {
 // is meant to be run continuously, a process is launched to perform this
 // fingerprint on an ongoing basis in the background.
 func (fm *FingerprintManager) fingerprint(name string, f fingerprint.Fingerprint) (bool, error) {
+	fm.l.RLock()
 	request := &cstructs.FingerprintRequest{Config: fm.getConfig(), Node: fm.node}
+	fm.l.RUnlock()
 	var response cstructs.FingerprintResponse
 	if err := f.Fingerprint(request, &response); err != nil {
 		return false, err
@@ -106,7 +110,9 @@ func (fm *FingerprintManager) fingerprint(name string, f fingerprint.Fingerprint
 
 	fm.nodeLock.Lock()
 	if node := fm.updateNode(&response); node != nil {
+		fm.l.Lock()
 		fm.node = node
+		fm.l.Unlock()
 	}
 	fm.nodeLock.Unlock()
 
