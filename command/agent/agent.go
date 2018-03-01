@@ -101,10 +101,13 @@ func NewAgent(config *Config, logOutput io.Writer, inmem *metrics.InmemSink) (*A
 // convertServerConfig takes an agent config and log output and returns a Nomad
 // Config.
 func convertServerConfig(agentConfig *Config, logOutput io.Writer) (*nomad.Config, error) {
+	agentConfig = agentConfig.Merge(&Config{})
 	conf := agentConfig.NomadConfig
 	if conf == nil {
 		conf = nomad.DefaultConfig()
 	}
+	rpcAddrCopy := *conf.RPCAddr
+	conf.RPCAddr = &rpcAddrCopy
 	conf.LogOutput = logOutput
 	conf.DevMode = agentConfig.DevMode
 	conf.Build = agentConfig.Version.VersionNumber()
